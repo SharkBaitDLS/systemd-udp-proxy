@@ -36,7 +36,7 @@ jobs:
       - name: Build
         run: cargo build --release
       - name: Extract Version
-        run: echo "::set-output name=version::$(cargo metadata --format-version=1 --no-deps | jq '.packages[0].version')"
+        run: echo "version=$(cargo metadata --format-version=1 --no-deps | jq -r '.packages[0].version')" >> $GITHUB_OUTPUT
         id: version
       - name: Create Release
         uses: softprops/action-gh-release@v1
