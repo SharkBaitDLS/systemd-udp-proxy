@@ -66,7 +66,14 @@ impl Session {
         while let Ok(Some(data)) =
             timeout(Duration::from_secs(session_timeout), source_channel.recv()).await
         {
-            self.destination.send(&data).await?;
+            match self.destination.send(&data).await {
+                Ok(_) => {}
+                Err(err) => match err.kind() {
+                    // Destination service hasn't started yet
+                    ErrorKind::ConnectionRefused => {}
+                    _ => return Err(err),
+                },
+            }
         }
         info!(
             "Closing tx session for {} due to {session_timeout} second timeout",
