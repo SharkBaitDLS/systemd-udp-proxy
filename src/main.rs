@@ -19,6 +19,7 @@ use tokio::{
 };
 
 mod error_util;
+mod log_config;
 mod primary_tasks;
 mod session;
 
@@ -28,16 +29,16 @@ type SessionCache = HashMap<SessionSource, (SessionChannel, Arc<Session>)>;
 #[derive(Parser, Debug)]
 struct Args {
     /// The destination port to proxy traffic to
-    #[arg(short, long)]
+    #[arg(short = 'p', long)]
     destination_port: u16,
     /// The address to bind to to send proxy traffic from
-    #[arg(short, long, default_value_t = IpAddr::V4(Ipv4Addr::new(0, 0, 0, 0)))]
+    #[arg(short = 's', long, default_value_t = IpAddr::V4(Ipv4Addr::new(0, 0, 0, 0)))]
     source_address: IpAddr,
     /// The destination address to send proxy traffic to
-    #[arg(short, long, default_value_t = IpAddr::V4(Ipv4Addr::new(0, 0, 0, 0)))]
+    #[arg(short = 'd', long, default_value_t = IpAddr::V4(Ipv4Addr::new(0, 0, 0, 0)))]
     destination_address: IpAddr,
     /// How many seconds sessions should be cached before expiring
-    #[arg(short, long, default_value_t = 10)]
+    #[arg(short = 't', long, default_value_t = 60)]
     session_timeout: u64,
 }
 
@@ -45,24 +46,29 @@ const MAX_UDP_PACKET_SIZE: u16 = u16::MAX;
 
 #[tokio::main]
 async fn main() -> io::Result<()> {
+    log_config::init();
     let args = Args::parse();
-    env_logger::init();
 
-    let mut listen_fd = ListenFd::from_env();
-    if listen_fd.len() == 0 {
-        return Err(io::Error::new(
-            ErrorKind::AddrNotAvailable,
-            "No socket was passed by systemd",
-        ));
-    }
+    #[cfg(debug_assertions)]
+    let std_source_socket = std::net::UdpSocket::bind((Ipv4Addr::new(127, 0, 0, 1), 8123))?;
+    #[cfg(not(debug_assertions))]
+    let std_source_socket = {
+        let mut listen_fd = ListenFd::from_env();
+        if listen_fd.len() == 0 {
+            return Err(io::Error::new(
+                ErrorKind::AddrNotAvailable,
+                "No socket was passed by systemd",
+            ));
+        }
 
-    if listen_fd.len() > 1 {
-        warn!("More than one socket was passed by systemd, but only the first will be used.");
-    }
-    let std_source_socket = listen_fd.take_udp_socket(0)?.ok_or(io::Error::new(
-        io::ErrorKind::AddrInUse,
-        "Socket was unexpectedly consumed before use",
-    ))?;
+        if listen_fd.len() > 1 {
+            warn!("More than one socket was passed by systemd, but only the first will be used.");
+        }
+        listen_fd.take_udp_socket(0)?.ok_or(io::Error::new(
+            io::ErrorKind::AddrInUse,
+            "Socket was unexpectedly consumed before use",
+        ))?
+    };
     // The socket must be set to non-blocking mode in order to be used in async contexts
     std_source_socket.set_nonblocking(true)?;
 

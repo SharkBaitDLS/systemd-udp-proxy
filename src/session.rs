@@ -75,10 +75,7 @@ impl Session {
                 },
             }
         }
-        info!(
-            "Closing tx session for {} due to {session_timeout} second timeout",
-            self.source
-        );
+        info!("Closing tx session for {}", self.source);
         Ok(())
     }
 
@@ -89,8 +86,8 @@ impl Session {
         reply_channel: Arc<UnboundedSender<SessionReply>>,
         session_timeout: u64,
     ) -> io::Result<()> {
-        let mut buf = Vec::with_capacity(MAX_UDP_PACKET_SIZE.into());
         loop {
+            let mut buf = Vec::with_capacity(MAX_UDP_PACKET_SIZE.into());
             match timeout(
                 Duration::from_secs(session_timeout),
                 self.destination.recv_buf(&mut buf),
@@ -108,10 +105,7 @@ impl Session {
                     }
                 }
                 Err(_) => {
-                    info!(
-                        "Closing rx session for {} due to {session_timeout} second timeout",
-                        self.source
-                    );
+                    info!("Closing rx session for {}", self.source);
                     return Ok(());
                 }
             };
@@ -119,7 +113,7 @@ impl Session {
             if reply_channel
                 .send(SessionReply {
                     source: self.source,
-                    data: buf.clone(),
+                    data: buf,
                 })
                 .is_err()
             {

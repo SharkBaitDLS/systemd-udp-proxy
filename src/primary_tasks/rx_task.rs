@@ -1,6 +1,6 @@
 use std::{collections::hash_map::Entry, io, sync::Arc};
 
-use log::error;
+use log::{error, info};
 use tokio::{
     net::UdpSocket,
     sync::{
@@ -27,10 +27,10 @@ pub async fn rx_loop(
     rx_socket: Arc<UdpSocket>,
     sessions: Arc<RwLock<SessionCache>>,
 ) -> io::Result<()> {
-    let mut buf = Vec::with_capacity(MAX_UDP_PACKET_SIZE.into());
     let shared_reply_channel = Arc::new(reply_channel_tx);
 
     loop {
+        let mut buf = Vec::with_capacity(MAX_UDP_PACKET_SIZE.into());
         match rx_socket.recv_buf_from(&mut buf).await {
             Err(err) => match handle_io_error(err) {
                 ErrorAction::Terminate(err) => return Err(err),
@@ -40,6 +40,7 @@ pub async fn rx_loop(
                 let mut session_cache = sessions.write().await;
                 let session_channel_tx = match session_cache.entry(source.into()) {
                     Entry::Vacant(entry) => {
+                        info!("Creating a new session for {source}");
                         let session = match Session::new(&args, source.into()).await {
                             Ok(created_session) => Arc::new(created_session),
                             Err(err) => {
@@ -81,7 +82,7 @@ pub async fn rx_loop(
                     }
                 };
 
-                if session_channel_tx.send(buf.clone()).is_err() {
+                if session_channel_tx.send(buf).is_err() {
                     error!(
                         "Dropped packet for {} because its proxy session is closed",
                         source
