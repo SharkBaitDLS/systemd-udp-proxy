@@ -18,3 +18,26 @@ pub fn handle_io_error(err: Error) -> ErrorAction {
         _ => ErrorAction::Continue,
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn terminable_action_passes_error_through() {
+        let underlying_err = Error::new(ErrorKind::PermissionDenied, "Permission was denied");
+        match handle_io_error(underlying_err) {
+            ErrorAction::Continue => panic!("Expected a terminate action, but got continue"),
+            ErrorAction::Terminate(err) => assert_eq!(err.kind(), ErrorKind::PermissionDenied),
+        }
+    }
+
+    #[test]
+    fn retriable_error_continues() {
+        let underlying_err = Error::new(ErrorKind::Interrupted, "I/O was interrupted");
+        match handle_io_error(underlying_err) {
+            ErrorAction::Continue => (),
+            ErrorAction::Terminate(_) => panic!("Expected a continue action, but got terminate"),
+        }
+    }
+}
