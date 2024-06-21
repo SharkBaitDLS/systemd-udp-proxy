@@ -9,10 +9,12 @@ pub enum ErrorAction {
 /// to continue their loop or to exit as failed.
 pub fn handle_io_error(err: Error) -> ErrorAction {
     match err.kind() {
-        ErrorKind::PermissionDenied
+        ErrorKind::NotFound
+        | ErrorKind::PermissionDenied
         | ErrorKind::ConnectionRefused
         | ErrorKind::AddrInUse
         | ErrorKind::AddrNotAvailable
+        | ErrorKind::InvalidInput
         | ErrorKind::Unsupported
         | ErrorKind::OutOfMemory => ErrorAction::Terminate(err),
         _ => ErrorAction::Continue,

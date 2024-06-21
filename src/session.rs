@@ -1,5 +1,5 @@
 use std::{
-    fmt::Display,
+    fmt::{self, Display, Formatter},
     io::{self, ErrorKind},
     net::{IpAddr, SocketAddr},
     sync::Arc,
@@ -24,9 +24,14 @@ pub struct SessionSource {
     pub port: u16,
 }
 
+/// Wrapper around a [UdpSocket] that handles the boiler plate of establishing a connection to the appropriate
+/// backend destination. It retains the original [SessionSource] of the traffic it will be proxying
+/// so that replies from the backend can be properly routed back.
 #[derive(Debug)]
 pub struct Session {
+    /// The source that this session is receiving traffic from
     source: SessionSource,
+    /// The socket that this session is using to communicate with the destination
     destination: Arc<UdpSocket>,
 }
 
@@ -36,11 +41,15 @@ pub struct SessionReply {
     pub data: Vec<u8>,
 }
 
-/// Wrapper around a [UdpSocket] that handles the boiler plate of establishing a connection to the appropriate
-/// destination based on the provided [Args] and provides helper functions for TX/RX loop tasks.
+impl SessionReply {
+    pub fn new(source: SessionSource, data: Vec<u8>) -> Self {
+        SessionReply { source, data }
+    }
+}
+
 impl Session {
-    /// Establish a new session that binds to a [Args::source_address] and establishes
-    /// a connection to [Args::destination_address] and [Args::destination_port]. Returns an [io::Error]
+    /// Establish a new session that binds to an [Args::source_address] and establishes
+    /// a connection to [Args::destination_address] on [Args::destination_port]. Returns an [io::Error]
     /// if the connection fails to establish.
     pub async fn new(args: &Args, source: SessionSource) -> io::Result<Self> {
         // Let the OS assign us an available port
@@ -56,22 +65,25 @@ impl Session {
         })
     }
 
-    /// Loop indefinitely waiting for messages on `source_channel` and send them to the [Self::destination].
-    /// Ends the loop if no message is recieved for `session_timeout` seconds.
+    /// Loops indefinitely waiting for messages on `source_channel` and send them to the [Self::destination].
+    /// Ends the loop if no message is recieved for `session_timeout` seconds or any unrecoverable
+    /// error occurs in transmission.
     pub async fn tx_loop(
         &self,
         mut source_channel: UnboundedReceiver<Vec<u8>>,
         session_timeout: u64,
     ) -> io::Result<()> {
-        while let Ok(Some(data)) =
-            timeout(Duration::from_secs(session_timeout), source_channel.recv()).await
-        {
+        let duration = Duration::from_secs(session_timeout);
+        while let Ok(Some(data)) = timeout(duration, source_channel.recv()).await {
             match self.destination.send(&data).await {
                 Ok(_) => {}
                 Err(err) => match err.kind() {
                     // Destination service hasn't started yet
                     ErrorKind::ConnectionRefused => {}
-                    _ => return Err(err),
+                    _ => match handle_io_error(err) {
+                        ErrorAction::Terminate(cause) => return Err(cause),
+                        ErrorAction::Continue => {}
+                    },
                 },
             }
         }
@@ -79,28 +91,22 @@ impl Session {
         Ok(())
     }
 
-    /// Loop indefinitely waiting for replies from the [Self::destination] and forwards them to the `reply_channel`.
+    /// Loops indefinitely waiting for replies from the [Self::destination] and forwards them to the `reply_channel`.
     /// Ends the loop if no reply is recieved for `session_timeout` seconds.
     pub async fn rx_loop(
         &self,
         reply_channel: Arc<UnboundedSender<SessionReply>>,
         session_timeout: u64,
     ) -> io::Result<()> {
+        let duration = Duration::from_secs(session_timeout);
         loop {
             let mut buf = Vec::with_capacity(MAX_UDP_PACKET_SIZE.into());
-            match timeout(
-                Duration::from_secs(session_timeout),
-                self.destination.recv_buf(&mut buf),
-            )
-            .await
-            {
+            match timeout(duration, self.destination.recv_buf(&mut buf)).await {
                 Ok(result) => {
                     if let Err(err) = result {
                         match handle_io_error(err) {
+                            ErrorAction::Terminate(cause) => return Err(cause),
                             ErrorAction::Continue => {}
-                            ErrorAction::Terminate(cause) => {
-                                return Err(cause);
-                            }
                         }
                     }
                 }
@@ -111,10 +117,7 @@ impl Session {
             };
 
             if reply_channel
-                .send(SessionReply {
-                    source: self.source,
-                    data: buf,
-                })
+                .send(SessionReply::new(self.source, buf))
                 .is_err()
             {
                 return Err(io::Error::new(
@@ -136,7 +139,7 @@ impl From<SocketAddr> for SessionSource {
 }
 
 impl Display for SessionSource {
-    fn fmt(&self, fmt: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+    fn fmt(&self, fmt: &mut Formatter<'_>) -> fmt::Result {
         fmt.write_fmt(format_args!("{}:{}", self.address, self.port))
     }
 }

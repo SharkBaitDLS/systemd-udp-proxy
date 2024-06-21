@@ -1,30 +1,24 @@
+#[cfg(not(debug_assertions))]
+use std::io::ErrorKind;
 use std::{
-    collections::HashMap,
-    io::{self, ErrorKind},
+    io,
     net::{IpAddr, Ipv4Addr},
     sync::Arc,
 };
 
 use clap::Parser;
+#[cfg(not(debug_assertions))]
 use listenfd::ListenFd;
+#[cfg(not(debug_assertions))]
 use log::warn;
 use primary_tasks::{rx_loop, tx_loop};
-use session::{Session, SessionReply, SessionSource};
-use tokio::{
-    net::UdpSocket,
-    sync::{
-        mpsc::{self, UnboundedSender},
-        RwLock,
-    },
-};
+use session::SessionReply;
+use tokio::{net::UdpSocket, sync::mpsc};
 
 mod error_util;
 mod log_config;
 mod primary_tasks;
 mod session;
-
-type SessionChannel = UnboundedSender<Vec<u8>>;
-type SessionCache = HashMap<SessionSource, (SessionChannel, Arc<Session>)>;
 
 #[derive(Parser, Debug)]
 struct Args {
@@ -75,13 +69,7 @@ async fn main() -> io::Result<()> {
     let source_socket = Arc::new(UdpSocket::from_std(std_source_socket)?);
     let (reply_channel_tx, reply_channel_rx) = mpsc::unbounded_channel::<SessionReply>();
 
-    let rx_task = tokio::spawn(rx_loop(
-        args,
-        reply_channel_tx,
-        source_socket.clone(),
-        Arc::new(RwLock::new(HashMap::new())),
-    ));
-
+    let rx_task = tokio::spawn(rx_loop(args, reply_channel_tx, source_socket.clone()));
     let tx_task = tokio::spawn(tx_loop(reply_channel_rx, source_socket.clone()));
 
     rx_task.await??;

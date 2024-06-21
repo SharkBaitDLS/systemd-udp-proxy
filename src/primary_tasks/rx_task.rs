@@ -1,4 +1,8 @@
-use std::{collections::hash_map::Entry, io, sync::Arc};
+use std::{
+    collections::{hash_map::Entry, HashMap},
+    io,
+    sync::Arc,
+};
 
 use log::{error, info};
 use tokio::{
@@ -11,9 +15,12 @@ use tokio::{
 
 use crate::{
     error_util::{handle_io_error, ErrorAction},
-    session::{Session, SessionReply},
-    Args, SessionCache, MAX_UDP_PACKET_SIZE,
+    session::{Session, SessionReply, SessionSource},
+    Args, MAX_UDP_PACKET_SIZE,
 };
+
+type SessionChannel = UnboundedSender<Vec<u8>>;
+type SessionCache = HashMap<SessionSource, (SessionChannel, Arc<Session>)>;
 
 /// Loops infinitely over the `rx_socket` to recieve traffic from the original source of the proxy.
 ///
@@ -25,9 +32,9 @@ pub async fn rx_loop(
     args: Args,
     reply_channel_tx: UnboundedSender<SessionReply>,
     rx_socket: Arc<UdpSocket>,
-    sessions: Arc<RwLock<SessionCache>>,
 ) -> io::Result<()> {
     let shared_reply_channel = Arc::new(reply_channel_tx);
+    let sessions = Arc::new(RwLock::new(SessionCache::new()));
 
     loop {
         let mut buf = Vec::with_capacity(MAX_UDP_PACKET_SIZE.into());
