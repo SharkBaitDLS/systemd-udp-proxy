@@ -7,12 +7,12 @@ use crate::{
     session::SessionReply,
 };
 
-/// Loops infinitely over the `tx_socket` to forward traffic from the destination of the proxy.
+/// Loops infinitely over the `reply_channel_rx` to forward traffic from the destination of the proxy.
 ///
 /// This task recives channel messages representing responses from the proxy destination over
 /// `reply_channel_tx` from [crate::session::Session]s and sends them back to the original
 /// source via `tx_socket`.
-pub async fn tx_loop(
+pub async fn tx_task(
     mut reply_channel_rx: UnboundedReceiver<SessionReply>,
     tx_socket: Arc<UdpSocket>,
 ) -> io::Result<()> {

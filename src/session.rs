@@ -15,7 +15,7 @@ use tokio::{
 
 use crate::{
     error_util::{handle_io_error, ErrorAction},
-    Args, MAX_UDP_PACKET_SIZE,
+    ProxyConfig, MAX_UDP_PACKET_SIZE,
 };
 
 #[derive(Clone, Copy, Debug, Hash, PartialEq, Eq)]
@@ -32,7 +32,7 @@ pub struct Session {
     /// The source that this session is receiving traffic from
     source: SessionSource,
     /// The socket that this session is using to communicate with the destination
-    destination: Arc<UdpSocket>,
+    destination_socket: Arc<UdpSocket>,
 }
 
 #[derive(Debug)]
@@ -51,17 +51,17 @@ impl Session {
     /// Establish a new session that binds to an [Args::source_address] and establishes
     /// a connection to [Args::destination_address] on [Args::destination_port]. Returns an [io::Error]
     /// if the connection fails to establish.
-    pub async fn new(args: &Args, source: SessionSource) -> io::Result<Self> {
+    pub async fn new(config: &ProxyConfig, source: SessionSource) -> io::Result<Self> {
         // Let the OS assign us an available port
-        let destination = Arc::new(UdpSocket::bind((args.source_address, 0)).await?);
+        let destination_socket = Arc::new(UdpSocket::bind((config.source_address, 0)).await?);
         // Connect to the destination
-        destination
-            .connect((args.destination_address, args.destination_port))
+        destination_socket
+            .connect((config.destination_address, config.destination_port))
             .await?;
 
         Ok(Session {
             source,
-            destination,
+            destination_socket,
         })
     }
 
@@ -75,7 +75,7 @@ impl Session {
     ) -> io::Result<()> {
         let duration = Duration::from_secs(session_timeout);
         while let Ok(Some(data)) = timeout(duration, source_channel.recv()).await {
-            match self.destination.send(&data).await {
+            match self.destination_socket.send(&data).await {
                 Ok(_) => {}
                 Err(err) => match err.kind() {
                     // Destination service hasn't started yet
@@ -101,7 +101,7 @@ impl Session {
         let duration = Duration::from_secs(session_timeout);
         loop {
             let mut buf = Vec::with_capacity(MAX_UDP_PACKET_SIZE.into());
-            match timeout(duration, self.destination.recv_buf(&mut buf)).await {
+            match timeout(duration, self.destination_socket.recv_buf(&mut buf)).await {
                 Ok(result) => {
                     if let Err(err) = result {
                         match handle_io_error(err) {
@@ -110,7 +110,7 @@ impl Session {
                         }
                     }
                 }
-                Err(_) => {
+                Err(_timeout_exceeded) => {
                     info!("Closing rx session for {}", self.source);
                     return Ok(());
                 }

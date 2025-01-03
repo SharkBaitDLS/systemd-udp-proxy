@@ -4,7 +4,7 @@ use env_logger::{Builder, Env, DEFAULT_FILTER_ENV};
 use log::LevelFilter;
 
 /// Initialize logger in the systemd format, default to WARN log level if not specified
-pub fn init() {
+pub fn init_systemd() {
     let env = Env::default().filter_or(DEFAULT_FILTER_ENV, LevelFilter::Warn.as_str());
     Builder::from_env(env)
         .format(|buf, record| {
