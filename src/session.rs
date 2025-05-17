@@ -24,8 +24,8 @@ pub struct SessionSource {
     pub port: u16,
 }
 
-/// Wrapper around a [UdpSocket] that handles the boiler plate of establishing a connection to the appropriate
-/// backend destination. It retains the original [SessionSource] of the traffic it will be proxying
+/// Wrapper around a [`UdpSocket`] that handles the boiler plate of establishing a connection to the appropriate
+/// backend destination. It retains the original [`SessionSource`] of the traffic it will be proxying
 /// so that replies from the backend can be properly routed back.
 #[derive(Debug)]
 pub struct Session {
@@ -48,9 +48,9 @@ impl SessionReply {
 }
 
 impl Session {
-    /// Establish a new session that binds to an [Args::source_address] and establishes
-    /// a connection to [Args::destination_address] on [Args::destination_port]. Returns an [io::Error]
-    /// if the connection fails to establish.
+    /// Establish a new session that binds to an [`ProxyConfig::source_address`] and establishes
+    /// a connection to [`ProxyConfig::destination_address`] on [`ProxyConfig::destination_port`].
+    /// Returns an [`io::Error`] if the connection fails to establish.
     pub async fn new(config: &ProxyConfig, source: SessionSource) -> io::Result<Self> {
         // Let the OS assign us an available port
         let destination_socket = Arc::new(UdpSocket::bind((config.source_address, 0)).await?);
@@ -65,7 +65,7 @@ impl Session {
         })
     }
 
-    /// Loops indefinitely waiting for messages on `source_channel` and send them to the [Self::destination].
+    /// Loops indefinitely waiting for messages on `source_channel` and send them to the [`Self::destination_socket`].
     /// Ends the loop if no message is recieved for `session_timeout` seconds or any unrecoverable
     /// error occurs in transmission.
     pub async fn tx_loop(
@@ -91,8 +91,8 @@ impl Session {
         Ok(())
     }
 
-    /// Loops indefinitely waiting for replies from the [Self::destination] and forwards them to the `reply_channel`.
-    /// Ends the loop if no reply is recieved for `session_timeout` seconds.
+    /// Loops indefinitely waiting for replies from the [`Self::destination_socket`] and forwards them to
+    /// the `reply_channel`. Ends the loop if no reply is recieved for `session_timeout` seconds.
     pub async fn rx_loop(
         &self,
         reply_channel: Arc<UnboundedSender<SessionReply>>,
@@ -114,7 +114,7 @@ impl Session {
                     info!("Closing rx session for {}", self.source);
                     return Ok(());
                 }
-            };
+            }
 
             if reply_channel
                 .send(SessionReply::new(self.source, buf))
@@ -124,7 +124,7 @@ impl Session {
                     ErrorKind::ConnectionAborted,
                     "Primary tx task has stopped listening, dropping reply as the proxy will soon terminate"
                 ));
-            };
+            }
         }
     }
 }

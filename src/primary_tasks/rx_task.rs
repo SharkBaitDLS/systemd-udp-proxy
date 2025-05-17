@@ -24,9 +24,9 @@ type SessionCache = HashMap<SessionSource, (SessionChannel, Arc<Session>)>;
 
 /// Loops infinitely over the `rx_socket` to recieve traffic from the original source of the proxy.
 ///
-/// For each unique [std::net::SocketAddr] that sends traffic to `rx_socket`, a [Session] is created and
-/// tx/rx loop tasks are spawned to proxy traffic for that session to and from the destination. If a [Session]
-/// does not recieve traffic for [Args::session_timeout] seconds, it will close its tasks and a new one will
+/// For each unique [`std::net::SocketAddr`] that sends traffic to `rx_socket`, a [`Session`] is created and
+/// tx/rx loop tasks are spawned to proxy traffic for that session to and from the destination. If a [`Session`]
+/// does not recieve traffic for [`ProxyConfig::session_timeout`] seconds, it will close its tasks and a new one will
 /// be created if any traffic resumes from it.
 pub async fn rx_task(
     config: ProxyConfig,
@@ -41,7 +41,7 @@ pub async fn rx_task(
         match rx_socket.recv_buf_from(&mut buf).await {
             Err(err) => match handle_io_error(err) {
                 ErrorAction::Terminate(err) => return Err(err),
-                ErrorAction::Continue => continue,
+                ErrorAction::Continue => {}
             },
             Ok((_len, source)) => {
                 let mut session_cache = sessions.write().await;

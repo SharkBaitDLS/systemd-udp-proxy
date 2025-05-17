@@ -15,12 +15,11 @@ pub fn init_systemd() {
                     log::Level::Error => 3,
                     log::Level::Warn => 4,
                     log::Level::Info => 6,
-                    log::Level::Debug => 7,
-                    log::Level::Trace => 7,
+                    log::Level::Debug | log::Level::Trace => 7,
                 },
                 record.target(),
                 record.args()
             )
         })
-        .init()
+        .init();
 }
