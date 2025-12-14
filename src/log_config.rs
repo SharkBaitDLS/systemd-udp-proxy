@@ -1,10 +1,10 @@
 use std::io::Write;
 
-use env_logger::{Builder, Env, DEFAULT_FILTER_ENV};
+use env_logger::{Builder, DEFAULT_FILTER_ENV, Env};
 use log::LevelFilter;
 
 /// Initialize logger in the systemd format, default to WARN log level if not specified
-pub fn init() {
+pub fn init_systemd() {
     let env = Env::default().filter_or(DEFAULT_FILTER_ENV, LevelFilter::Warn.as_str());
     Builder::from_env(env)
         .format(|buf, record| {
@@ -15,12 +15,11 @@ pub fn init() {
                     log::Level::Error => 3,
                     log::Level::Warn => 4,
                     log::Level::Info => 6,
-                    log::Level::Debug => 7,
-                    log::Level::Trace => 7,
+                    log::Level::Debug | log::Level::Trace => 7,
                 },
                 record.target(),
                 record.args()
             )
         })
-        .init()
+        .init();
 }

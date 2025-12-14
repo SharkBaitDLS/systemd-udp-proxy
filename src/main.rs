@@ -11,7 +11,7 @@ use clap::Parser;
 use listenfd::ListenFd;
 #[cfg(not(debug_assertions))]
 use log::warn;
-use primary_tasks::{rx_loop, tx_loop};
+use primary_tasks::{rx_task, tx_task};
 use session::SessionReply;
 use tokio::{net::UdpSocket, sync::mpsc};
 
@@ -21,7 +21,7 @@ mod primary_tasks;
 mod session;
 
 #[derive(Parser, Debug)]
-struct Args {
+struct ProxyConfig {
     /// The destination port to proxy traffic to
     #[arg(short = 'p', long)]
     destination_port: u16,
@@ -40,11 +40,11 @@ const MAX_UDP_PACKET_SIZE: u16 = u16::MAX;
 
 #[tokio::main]
 async fn main() -> io::Result<()> {
-    log_config::init();
-    let args = Args::parse();
+    log_config::init_systemd();
+    let config = ProxyConfig::parse();
 
     #[cfg(debug_assertions)]
-    let std_source_socket = std::net::UdpSocket::bind((Ipv4Addr::new(127, 0, 0, 1), 8123))?;
+    let std_source_socket = std::net::UdpSocket::bind((Ipv4Addr::LOCALHOST, 8123))?;
     #[cfg(not(debug_assertions))]
     let std_source_socket = {
         let mut listen_fd = ListenFd::from_env();
@@ -69,8 +69,8 @@ async fn main() -> io::Result<()> {
     let source_socket = Arc::new(UdpSocket::from_std(std_source_socket)?);
     let (reply_channel_tx, reply_channel_rx) = mpsc::unbounded_channel::<SessionReply>();
 
-    let rx_task = tokio::spawn(rx_loop(args, reply_channel_tx, source_socket.clone()));
-    let tx_task = tokio::spawn(tx_loop(reply_channel_rx, source_socket.clone()));
+    let rx_task = tokio::spawn(rx_task(config, reply_channel_tx, source_socket.clone()));
+    let tx_task = tokio::spawn(tx_task(reply_channel_rx, source_socket.clone()));
 
     rx_task.await??;
     tx_task.await??;
