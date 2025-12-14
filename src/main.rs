@@ -44,7 +44,7 @@ async fn main() -> io::Result<()> {
     let config = ProxyConfig::parse();
 
     #[cfg(debug_assertions)]
-    let std_source_socket = std::net::UdpSocket::bind((Ipv4Addr::new(127, 0, 0, 1), 8123))?;
+    let std_source_socket = std::net::UdpSocket::bind((Ipv4Addr::LOCALHOST, 8123))?;
     #[cfg(not(debug_assertions))]
     let std_source_socket = {
         let mut listen_fd = ListenFd::from_env();

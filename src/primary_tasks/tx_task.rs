@@ -3,7 +3,7 @@ use std::{io, sync::Arc};
 use tokio::{net::UdpSocket, sync::mpsc::UnboundedReceiver};
 
 use crate::{
-    error_util::{handle_io_error, ErrorAction},
+    error_util::{ErrorAction, handle_io_error},
     session::SessionReply,
 };
 

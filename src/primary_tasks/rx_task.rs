@@ -1,5 +1,5 @@
 use std::{
-    collections::{hash_map::Entry, HashMap},
+    collections::{HashMap, hash_map::Entry},
     io,
     sync::Arc,
 };
@@ -8,15 +8,15 @@ use log::{error, info};
 use tokio::{
     net::UdpSocket,
     sync::{
-        mpsc::{self, UnboundedSender},
         RwLock,
+        mpsc::{self, UnboundedSender},
     },
 };
 
 use crate::{
-    error_util::{handle_io_error, ErrorAction},
+    MAX_UDP_PACKET_SIZE, ProxyConfig,
+    error_util::{ErrorAction, handle_io_error},
     session::{Session, SessionReply, SessionSource},
-    ProxyConfig, MAX_UDP_PACKET_SIZE,
 };
 
 type SessionChannel = UnboundedSender<Vec<u8>>;
@@ -97,6 +97,6 @@ pub async fn rx_task(
                     sessions.write().await.remove(&source.into());
                 }
             }
-        };
+        }
     }
 }

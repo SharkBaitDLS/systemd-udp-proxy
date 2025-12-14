@@ -1,6 +1,6 @@
 use std::io::Write;
 
-use env_logger::{Builder, Env, DEFAULT_FILTER_ENV};
+use env_logger::{Builder, DEFAULT_FILTER_ENV, Env};
 use log::LevelFilter;
 
 /// Initialize logger in the systemd format, default to WARN log level if not specified

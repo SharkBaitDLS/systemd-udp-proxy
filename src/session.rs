@@ -14,8 +14,8 @@ use tokio::{
 };
 
 use crate::{
-    error_util::{handle_io_error, ErrorAction},
-    ProxyConfig, MAX_UDP_PACKET_SIZE,
+    MAX_UDP_PACKET_SIZE, ProxyConfig,
+    error_util::{ErrorAction, handle_io_error},
 };
 
 #[derive(Clone, Copy, Debug, Hash, PartialEq, Eq)]
@@ -122,7 +122,7 @@ impl Session {
             {
                 return Err(io::Error::new(
                     ErrorKind::ConnectionAborted,
-                    "Primary tx task has stopped listening, dropping reply as the proxy will soon terminate"
+                    "Primary tx task has stopped listening, dropping reply as the proxy will soon terminate",
                 ));
             }
         }
