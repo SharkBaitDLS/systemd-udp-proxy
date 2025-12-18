@@ -6,7 +6,7 @@ use std::{
     time::Duration,
 };
 
-use log::info;
+use log::{info, warn};
 use tokio::{
     net::UdpSocket,
     sync::mpsc::{UnboundedReceiver, UnboundedSender},
@@ -14,7 +14,7 @@ use tokio::{
 };
 
 use crate::{
-    MAX_UDP_PACKET_SIZE, ProxyConfig,
+    ProxyConfig,
     error_util::{ErrorAction, handle_io_error},
 };
 
@@ -79,7 +79,9 @@ impl Session {
                 Ok(_) => {}
                 Err(err) => match err.kind() {
                     // Destination service hasn't started yet
-                    ErrorKind::ConnectionRefused => {}
+                    ErrorKind::ConnectionRefused => {
+                        warn!("Destination service refused connection");
+                    }
                     _ => match handle_io_error(err) {
                         ErrorAction::Terminate(cause) => return Err(cause),
                         ErrorAction::Continue => {}
@@ -97,10 +99,11 @@ impl Session {
         &self,
         reply_channel: Arc<UnboundedSender<SessionReply>>,
         session_timeout: u64,
+        max_packet_size: usize,
     ) -> io::Result<()> {
         let duration = Duration::from_secs(session_timeout);
         loop {
-            let mut buf = Vec::with_capacity(MAX_UDP_PACKET_SIZE.into());
+            let mut buf = Vec::with_capacity(max_packet_size);
             match timeout(duration, self.destination_socket.recv_buf(&mut buf)).await {
                 Ok(result) => {
                     if let Err(err) = result {

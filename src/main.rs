@@ -34,9 +34,10 @@ struct ProxyConfig {
     /// How many seconds sessions should be cached before expiring
     #[arg(short = 't', long, default_value_t = 60)]
     session_timeout: u64,
+    /// Maximum UDP packet size to receive in bytes (packets larger will be truncated)
+    #[arg(short = 'm', long, default_value_t = 1500)]
+    max_packet_size: usize,
 }
-
-const MAX_UDP_PACKET_SIZE: u16 = u16::MAX;
 
 #[tokio::main]
 async fn main() -> io::Result<()> {
