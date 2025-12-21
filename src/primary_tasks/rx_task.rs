@@ -14,7 +14,7 @@ use tokio::{
 };
 
 use crate::{
-    MAX_UDP_PACKET_SIZE, ProxyConfig,
+    ProxyConfig,
     error_util::{ErrorAction, handle_io_error},
     session::{Session, SessionReply, SessionSource},
 };
@@ -28,6 +28,10 @@ type SessionCache = HashMap<SessionSource, (SessionChannel, Arc<Session>)>;
 /// tx/rx loop tasks are spawned to proxy traffic for that session to and from the destination. If a [`Session`]
 /// does not recieve traffic for [`ProxyConfig::session_timeout`] seconds, it will close its tasks and a new one will
 /// be created if any traffic resumes from it.
+///
+/// If a packet arrives after a Session's channel has closed but before the session is removed
+/// from the cache, that packet will be dropped and the session will be cleaned up. Subsequent
+/// packets from the same source will trigger creation of a new session.
 pub async fn rx_task(
     config: ProxyConfig,
     reply_channel_tx: UnboundedSender<SessionReply>,
@@ -37,7 +41,7 @@ pub async fn rx_task(
     let sessions = Arc::new(RwLock::new(SessionCache::new()));
 
     loop {
-        let mut buf = Vec::with_capacity(MAX_UDP_PACKET_SIZE.into());
+        let mut buf = Vec::with_capacity(config.max_packet_size);
         match rx_socket.recv_buf_from(&mut buf).await {
             Err(err) => match handle_io_error(err) {
                 ErrorAction::Terminate(err) => return Err(err),
@@ -72,7 +76,11 @@ pub async fn rx_task(
                         let rx_reply_channel = shared_reply_channel.clone();
                         tokio::spawn(async move {
                             if let Err(err) = rx_session
-                                .rx_loop(rx_reply_channel, config.session_timeout)
+                                .rx_loop(
+                                    rx_reply_channel,
+                                    config.session_timeout,
+                                    config.max_packet_size,
+                                )
                                 .await
                             {
                                 error!("RX error for {}: {:?}", source, err);
