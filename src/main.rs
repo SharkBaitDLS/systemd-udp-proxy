@@ -85,7 +85,7 @@ async fn main() -> io::Result<()> {
     let (reply_channel_tx, reply_channel_rx) = mpsc::unbounded_channel::<SessionReply>();
 
     let sessions = Arc::new(RwLock::new(SessionCache::new()));
-    let metrics = telemetry::init_metrics(&config, sessions.clone()).map_err(|err| {
+    let (metrics, meter) = telemetry::init_metrics(&config, sessions.clone()).map_err(|err| {
         io::Error::other(format!("Failed to initialize OTel metrics exporter: {err}"))
     })?;
 
@@ -104,5 +104,5 @@ async fn main() -> io::Result<()> {
 
     rx_task.await??;
     tx_task.await??;
-    Ok(())
+    meter.shutdown().map_err(io::Error::other)
 }

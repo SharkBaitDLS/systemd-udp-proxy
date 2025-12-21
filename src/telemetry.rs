@@ -65,27 +65,27 @@ impl ProxyMetrics {
             network_io_bytes: meter
                 .u64_counter(NETWORK_IO_BYTES)
                 .with_description("Network bytes sent and received by the proxy")
-                .with_unit("bytes")
+                .with_unit("By")
                 .build(),
             network_io_packets: meter
                 .u64_counter(NETWORK_IO_PACKETS)
                 .with_description("Network packets sent and received by the proxy")
-                .with_unit("packet")
+                .with_unit("{packet}")
                 .build(),
             network_io_packets_dropped: meter
                 .u64_counter(NETWORK_IO_PACKETS_DROPPED)
                 .with_description("Packets dropped due to closing sessions")
-                .with_unit("packet")
+                .with_unit("{packet}")
                 .build(),
             network_io_errors_recoverable: meter
                 .u64_counter(NETWORK_IO_ERRORS_RECOVERABLE)
                 .with_description("Recoverable IO errors encountered by the proxy")
-                .with_unit("error")
+                .with_unit("{error}")
                 .build(),
             network_io_errors_unrecoverable: meter
                 .u64_counter(NETWORK_IO_ERRORS_UNRECOVERABLE)
                 .with_description("Unrecoverable IO errors encountered by the proxy")
-                .with_unit("error")
+                .with_unit("{error}")
                 .build(),
         }
     }
@@ -169,7 +169,7 @@ impl Display for NetworkDirection {
 pub fn init_metrics(
     config: &ProxyConfig,
     sessions: Arc<RwLock<SessionCache>>,
-) -> Result<Arc<ProxyMetrics>, ExporterBuildError> {
+) -> Result<(Arc<ProxyMetrics>, SdkMeterProvider), ExporterBuildError> {
     let export_config = ExportConfig {
         endpoint: Some(config.otel_endpoint.clone()),
         ..Default::default()
@@ -200,5 +200,8 @@ pub fn init_metrics(
         .with_resource(resource)
         .build();
 
-    Ok(Arc::new(ProxyMetrics::new(&meter_provider, sessions)))
+    Ok((
+        Arc::new(ProxyMetrics::new(&meter_provider, sessions)),
+        meter_provider,
+    ))
 }
