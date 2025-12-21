@@ -17,7 +17,7 @@ use crate::{
     ProxyConfig,
     error_util::{ErrorAction, handle_io_error},
     session::{Session, SessionReply, SessionSource},
-    telemetry::{Peer, ProxyMetrics},
+    telemetry::{NetworkDirection, Peer, ProxyMetrics},
 };
 
 type SessionChannel = UnboundedSender<Vec<u8>>;
@@ -41,6 +41,8 @@ pub async fn rx_task(
     metrics: Arc<ProxyMetrics>,
 ) -> io::Result<()> {
     let shared_reply_channel = Arc::new(reply_channel_tx);
+    let dir = NetworkDirection::Receive;
+    let peer = Peer::Client;
 
     loop {
         let mut buf = Vec::with_capacity(config.max_packet_size);
@@ -100,13 +102,17 @@ pub async fn rx_task(
                     }
                 };
 
+                let bytes = buf.len() as u64;
                 if session_channel_tx.send(buf).is_err() {
                     error!(
                         "Dropped packet for {} because its proxy session is closed",
                         source
                     );
-                    metrics.count_dropped_packet(&Peer::Backend);
+                    metrics.count_dropped_packet(&Peer::Client);
                     sessions.write().await.remove(&source.into());
+                } else {
+                    metrics.count_packet(&dir, &peer);
+                    metrics.count_bytes(&dir, &peer, bytes);
                 }
             }
         }
