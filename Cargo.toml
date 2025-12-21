@@ -6,7 +6,6 @@ edition = "2024"
 [dependencies]
 clap = { version = "4.5", features = ["derive"] }
 env_logger = "0.11"
-gethostname = "1.1"
 listenfd = "1.0"
 log = "0.4"
 opentelemetry = "0.31"
