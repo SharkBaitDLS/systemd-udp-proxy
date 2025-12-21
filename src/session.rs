@@ -10,12 +10,13 @@ use log::{info, warn};
 use tokio::{
     net::UdpSocket,
     sync::mpsc::{UnboundedReceiver, UnboundedSender},
-    time::timeout,
+    time::{Instant, timeout},
 };
 
 use crate::{
     ProxyConfig,
     error_util::{ErrorAction, handle_io_error},
+    telemetry::ProxyMetrics,
 };
 
 #[derive(Clone, Copy, Debug, Hash, PartialEq, Eq)]
@@ -27,15 +28,15 @@ pub struct SessionSource {
 /// Wrapper around a [`UdpSocket`] that handles the boiler plate of establishing a connection to the appropriate
 /// backend destination. It retains the original [`SessionSource`] of the traffic it will be proxying
 /// so that replies from the backend can be properly routed back.
-#[derive(Debug)]
 pub struct Session {
     /// The source that this session is receiving traffic from
     source: SessionSource,
     /// The socket that this session is using to communicate with the destination
     destination_socket: Arc<UdpSocket>,
+    metrics: Arc<ProxyMetrics>,
+    start: Instant,
 }
 
-#[derive(Debug)]
 pub struct SessionReply {
     pub source: SessionSource,
     pub data: Vec<u8>,
@@ -51,7 +52,11 @@ impl Session {
     /// Establish a new session that binds to an [`ProxyConfig::source_address`] and establishes
     /// a connection to [`ProxyConfig::destination_address`] on [`ProxyConfig::destination_port`].
     /// Returns an [`io::Error`] if the connection fails to establish.
-    pub async fn new(config: &ProxyConfig, source: SessionSource) -> io::Result<Self> {
+    pub async fn new(
+        config: &ProxyConfig,
+        source: SessionSource,
+        metrics: Arc<ProxyMetrics>,
+    ) -> io::Result<Self> {
         // Let the OS assign us an available port
         let destination_socket = Arc::new(UdpSocket::bind((config.source_address, 0)).await?);
         // Connect to the destination
@@ -62,6 +67,8 @@ impl Session {
         Ok(Session {
             source,
             destination_socket,
+            metrics,
+            start: Instant::now(),
         })
     }
 
@@ -129,6 +136,13 @@ impl Session {
                 ));
             }
         }
+    }
+}
+
+impl Drop for Session {
+    fn drop(&mut self) {
+        self.metrics
+            .record_session_duration(Instant::now().duration_since(self.start).as_secs_f64());
     }
 }
 

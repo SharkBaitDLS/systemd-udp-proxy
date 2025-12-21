@@ -11,14 +11,18 @@ use clap::Parser;
 use listenfd::ListenFd;
 #[cfg(not(debug_assertions))]
 use log::warn;
-use primary_tasks::{rx_task, tx_task};
+use primary_tasks::{SessionCache, rx_task, tx_task};
 use session::SessionReply;
-use tokio::{net::UdpSocket, sync::mpsc};
+use tokio::{
+    net::UdpSocket,
+    sync::{RwLock, mpsc},
+};
 
 mod error_util;
 mod log_config;
 mod primary_tasks;
 mod session;
+mod telemetry;
 
 #[derive(Parser, Debug)]
 struct ProxyConfig {
@@ -37,6 +41,16 @@ struct ProxyConfig {
     /// Maximum UDP packet size to receive in bytes (packets larger will be truncated)
     #[arg(short = 'm', long, default_value_t = 1500)]
     max_packet_size: usize,
+
+    /// The OTel collector endpoint
+    #[arg(long, default_value = "http://localhost:4317")]
+    otel_endpoint: String,
+    /// The service name for OTel tagging
+    #[arg(long, default_value = "systemd-udp-proxy")]
+    service_name: String,
+    /// The deployment environment for OTel tagging
+    #[arg(long, default_value = "prod")]
+    environment: String,
 }
 
 #[tokio::main]
@@ -70,8 +84,23 @@ async fn main() -> io::Result<()> {
     let source_socket = Arc::new(UdpSocket::from_std(std_source_socket)?);
     let (reply_channel_tx, reply_channel_rx) = mpsc::unbounded_channel::<SessionReply>();
 
-    let rx_task = tokio::spawn(rx_task(config, reply_channel_tx, source_socket.clone()));
-    let tx_task = tokio::spawn(tx_task(reply_channel_rx, source_socket.clone()));
+    let sessions = Arc::new(RwLock::new(SessionCache::new()));
+    let metrics = telemetry::init_metrics(&config, sessions.clone()).map_err(|err| {
+        io::Error::other(format!("Failed to initialize OTel metrics exporter: {err}"))
+    })?;
+
+    let rx_task = tokio::spawn(rx_task(
+        config,
+        reply_channel_tx,
+        source_socket.clone(),
+        sessions,
+        metrics.clone(),
+    ));
+    let tx_task = tokio::spawn(tx_task(
+        reply_channel_rx,
+        source_socket.clone(),
+        metrics.clone(),
+    ));
 
     rx_task.await??;
     tx_task.await??;

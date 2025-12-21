@@ -17,10 +17,11 @@ use crate::{
     ProxyConfig,
     error_util::{ErrorAction, handle_io_error},
     session::{Session, SessionReply, SessionSource},
+    telemetry::{Peer, ProxyMetrics},
 };
 
 type SessionChannel = UnboundedSender<Vec<u8>>;
-type SessionCache = HashMap<SessionSource, (SessionChannel, Arc<Session>)>;
+pub type SessionCache = HashMap<SessionSource, (SessionChannel, Arc<Session>)>;
 
 /// Loops infinitely over the `rx_socket` to recieve traffic from the original source of the proxy.
 ///
@@ -36,9 +37,10 @@ pub async fn rx_task(
     config: ProxyConfig,
     reply_channel_tx: UnboundedSender<SessionReply>,
     rx_socket: Arc<UdpSocket>,
+    sessions: Arc<RwLock<SessionCache>>,
+    metrics: Arc<ProxyMetrics>,
 ) -> io::Result<()> {
     let shared_reply_channel = Arc::new(reply_channel_tx);
-    let sessions = Arc::new(RwLock::new(SessionCache::new()));
 
     loop {
         let mut buf = Vec::with_capacity(config.max_packet_size);
@@ -52,13 +54,14 @@ pub async fn rx_task(
                 let session_channel_tx = match session_cache.entry(source.into()) {
                     Entry::Vacant(entry) => {
                         info!("Creating a new session for {source}");
-                        let session = match Session::new(&config, source.into()).await {
-                            Ok(created_session) => Arc::new(created_session),
-                            Err(err) => {
-                                error!("Failed to create a session for {}: {:?}", source, err);
-                                continue;
-                            }
-                        };
+                        let session =
+                            match Session::new(&config, source.into(), metrics.clone()).await {
+                                Ok(created_session) => Arc::new(created_session),
+                                Err(err) => {
+                                    error!("Failed to create a session for {}: {:?}", source, err);
+                                    continue;
+                                }
+                            };
 
                         let (tx, rx) = mpsc::unbounded_channel();
 
@@ -102,6 +105,7 @@ pub async fn rx_task(
                         "Dropped packet for {} because its proxy session is closed",
                         source
                     );
+                    metrics.count_dropped_packet(&Peer::Backend);
                     sessions.write().await.remove(&source.into());
                 }
             }
