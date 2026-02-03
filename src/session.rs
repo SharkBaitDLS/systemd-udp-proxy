@@ -10,12 +10,13 @@ use log::{info, warn};
 use tokio::{
     net::UdpSocket,
     sync::mpsc::{UnboundedReceiver, UnboundedSender},
-    time::timeout,
+    time::{Instant, timeout},
 };
 
 use crate::{
     ProxyConfig,
     error_util::{ErrorAction, handle_io_error},
+    telemetry::{NetworkDirection, Peer, ProxyMetrics},
 };
 
 #[derive(Clone, Copy, Debug, Hash, PartialEq, Eq)]
@@ -27,15 +28,15 @@ pub struct SessionSource {
 /// Wrapper around a [`UdpSocket`] that handles the boiler plate of establishing a connection to the appropriate
 /// backend destination. It retains the original [`SessionSource`] of the traffic it will be proxying
 /// so that replies from the backend can be properly routed back.
-#[derive(Debug)]
 pub struct Session {
     /// The source that this session is receiving traffic from
     source: SessionSource,
     /// The socket that this session is using to communicate with the destination
     destination_socket: Arc<UdpSocket>,
+    metrics: Arc<ProxyMetrics>,
+    start: Instant,
 }
 
-#[derive(Debug)]
 pub struct SessionReply {
     pub source: SessionSource,
     pub data: Vec<u8>,
@@ -51,7 +52,11 @@ impl Session {
     /// Establish a new session that binds to an [`ProxyConfig::source_address`] and establishes
     /// a connection to [`ProxyConfig::destination_address`] on [`ProxyConfig::destination_port`].
     /// Returns an [`io::Error`] if the connection fails to establish.
-    pub async fn new(config: &ProxyConfig, source: SessionSource) -> io::Result<Self> {
+    pub async fn new(
+        config: &ProxyConfig,
+        source: SessionSource,
+        metrics: Arc<ProxyMetrics>,
+    ) -> io::Result<Self> {
         // Let the OS assign us an available port
         let destination_socket = Arc::new(UdpSocket::bind((config.source_address, 0)).await?);
         // Connect to the destination
@@ -62,6 +67,8 @@ impl Session {
         Ok(Session {
             source,
             destination_socket,
+            metrics,
+            start: Instant::now(),
         })
     }
 
@@ -74,19 +81,33 @@ impl Session {
         session_timeout: u64,
     ) -> io::Result<()> {
         let duration = Duration::from_secs(session_timeout);
+        let dir = NetworkDirection::Transmit;
+        let peer = Peer::Backend;
+
         while let Ok(Some(data)) = timeout(duration, source_channel.recv()).await {
             match self.destination_socket.send(&data).await {
-                Ok(_) => {}
-                Err(err) => match err.kind() {
-                    // Destination service hasn't started yet
-                    ErrorKind::ConnectionRefused => {
-                        warn!("Destination service refused connection");
+                Ok(_) => {
+                    self.metrics.count_packet(&dir, &peer);
+                    self.metrics.count_bytes(&dir, &peer, data.len() as u64);
+                }
+                Err(err) => {
+                    self.metrics.count_dropped_packet(&peer);
+                    match err.kind() {
+                        // Destination service hasn't started yet
+                        ErrorKind::ConnectionRefused => {
+                            warn!("Destination service refused connection");
+                        }
+                        _ => match handle_io_error(err) {
+                            ErrorAction::Terminate(cause) => {
+                                self.metrics.count_io_error(&dir, &peer, false);
+                                return Err(cause);
+                            }
+                            ErrorAction::Continue => {
+                                self.metrics.count_io_error(&dir, &peer, true);
+                            }
+                        },
                     }
-                    _ => match handle_io_error(err) {
-                        ErrorAction::Terminate(cause) => return Err(cause),
-                        ErrorAction::Continue => {}
-                    },
-                },
+                }
             }
         }
         info!("Closing tx session for {}", self.source);
@@ -102,15 +123,27 @@ impl Session {
         max_packet_size: usize,
     ) -> io::Result<()> {
         let duration = Duration::from_secs(session_timeout);
+        let dir = NetworkDirection::Receive;
+        let peer = Peer::Backend;
+
         loop {
             let mut buf = Vec::with_capacity(max_packet_size);
             match timeout(duration, self.destination_socket.recv_buf(&mut buf)).await {
                 Ok(result) => {
                     if let Err(err) = result {
+                        self.metrics.count_dropped_packet(&peer);
                         match handle_io_error(err) {
-                            ErrorAction::Terminate(cause) => return Err(cause),
-                            ErrorAction::Continue => {}
+                            ErrorAction::Terminate(cause) => {
+                                self.metrics.count_io_error(&dir, &peer, false);
+                                return Err(cause);
+                            }
+                            ErrorAction::Continue => {
+                                self.metrics.count_io_error(&dir, &peer, true);
+                            }
                         }
+                    } else {
+                        self.metrics.count_packet(&dir, &peer);
+                        self.metrics.count_bytes(&dir, &peer, buf.len() as u64);
                     }
                 }
                 Err(_timeout_exceeded) => {
@@ -123,12 +156,20 @@ impl Session {
                 .send(SessionReply::new(self.source, buf))
                 .is_err()
             {
+                self.metrics.count_dropped_packet(&peer);
                 return Err(io::Error::new(
                     ErrorKind::ConnectionAborted,
                     "Primary tx task has stopped listening, dropping reply as the proxy will soon terminate",
                 ));
             }
         }
+    }
+}
+
+impl Drop for Session {
+    fn drop(&mut self) {
+        self.metrics
+            .record_session_duration(Instant::now().duration_since(self.start).as_secs_f64());
     }
 }
 
