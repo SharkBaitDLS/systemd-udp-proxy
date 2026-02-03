@@ -1,6 +1,6 @@
 [package]
 name = "systemd-udp-proxy"
-version = "0.1.4"
+version = "0.2.0"
 edition = "2024"
 
 [dependencies]
@@ -8,4 +8,8 @@ clap = { version = "4.5", features = ["derive"] }
 env_logger = "0.11"
 listenfd = "1.0"
 log = "0.4"
+opentelemetry = "0.31"
+opentelemetry_sdk = { version = "0.31", features = ["rt-tokio"] }
+opentelemetry-otlp = { version = "0.31", features = ["metrics", "grpc-tonic"] }
+opentelemetry-semantic-conventions = { version = "0.31", features = ["semconv_experimental"] }
 tokio = { version = "1.48", features = ["io-util", "macros", "net", "rt-multi-thread", "sync", "time"] }
